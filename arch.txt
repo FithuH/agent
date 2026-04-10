@@ -1,0 +1,43 @@
+forge-project/
+├── forge.py                     # [入口] 命令行脚本，用户直接运行
+├── config.yaml                  # [配置] API密钥、模型名称、路径等
+├── requirements.txt             # [依赖] Python包列表
+├── .env.example                 # [环境变量示例] 敏感信息模板
+├── README.md                    # [说明] 本项目自身的文档
+│
+├── core/                        # 核心逻辑模块
+│   ├── __init__.py
+│   ├── orchestrator.py          # [协调器] 主流程控制，串联各组件
+│   ├── agent.py                 # [本地Agent] 封装Ollama调用与任务规划
+│   ├── remote_api.py            # [远程API] 封装DeepSeek/Gemini调用
+│   ├── parser.py                # [解析器] 从响应中提取代码、文档
+│   ├── builder.py               # [构建器] 在文件系统中创建项目结构
+│   └── logger.py                # [日志] 统一日志记录
+│
+├── templates/                   # 项目模板与提示词模板
+│   ├── prompts/                 # 提示词模板（.txt或.yaml）
+│   │   ├── planner_system.txt   # 本地Agent的系统提示词
+│   │   ├── coder_system.txt     # 远程API生成代码的系统提示词
+│   │   └── readme_template.md   # README的基础模板
+│   └── project_skel/            # 生成项目的脚手架（如基础.gitignore等）
+│       ├── .gitignore
+│       └── pyproject.toml
+│
+├── utils/                       # 通用工具函数
+│   ├── __init__.py
+│   ├── file_utils.py            # 文件读写、安全路径处理
+│   ├── validation.py            # 输入校验、JSON格式检查
+│   └── retry.py                 # API调用重试装饰器
+|   |__ logger.py 
+│
+├── tests/                       # 本项目的单元测试
+│   ├── __init__.py
+│   ├── test_parser.py
+│   └── test_builder.py
+│
+└── output/                      # [默认] 生成的项目存放于此（可配置）
+    └── (generated_project_name)/
+        ├── README.md
+        ├── main.py
+        ├── requirements.txt
+        └── ...
