@@ -1,25 +1,10 @@
-import json
+"""
+utils/ast_extractor.py
+提取 Python 代码的 AST 骨架，作为极致轻量级的上下文记忆。
+"""
 import ast
-from pathlib import Path
-from typing import Dict, List
 
-class ProjectManifest:
-    def __init__(self, project_path: Path):
-        self.project_path = project_path
-        self.manifest_file = project_path / ".forge_manifest.json"
-        self.data = self._load()
-
-    def _load(self) -> Dict:
-        if self.manifest_file.exists():
-            with open(self.manifest_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        return {"project": str(self.project_path), "files": {}}
-
-    def save(self):
-        with open(self.manifest_file, 'w', encoding='utf-8') as f:
-            json.dump(self.data, f, indent=2, ensure_ascii=False)
-
-    def _extract_skeleton(self, content: str) -> str:
+def _extract_skeleton(self, content: str) -> str:
         """
         AST 语法树提取：终极版 (需 Python 3.9+)
         完美保留函数参数类型 (Args) 与 返回值类型 (Return Types)
@@ -63,27 +48,3 @@ class ProjectManifest:
                 lines.append(f"def {node.name}({args_str}){ret_str}: ...")
                 
         return "\n".join(lines) if lines else "无公开接口"
-
-    def update_file(self, filename: str, content: str, description: str = ""):
-        skeleton = self._extract_skeleton(content) if filename.endswith('.py') else ""
-        self.data["files"][filename] = {
-            "description": description,
-            "skeleton": skeleton,
-            "size": len(content)
-        }
-        self.save()
-
-    def get_jit_context(self, depends_on: List[str]) -> str:
-        """【JIT 上下文注入】仅返回当前文件直接依赖的模块 AST 骨架，拒绝污染"""
-        if not self.data["files"] or not depends_on:
-            return "当前模块为底层基石，无前置依赖项。"
-        
-        summary = "### 依赖模块的接口契约 (Interface Contracts)\n请严格对照以下已有接口的参数和返回值进行调用，**绝对禁止自行虚构接口**：\n\n"
-        has_deps = False
-        for dep in depends_on:
-            if dep in self.data["files"]:
-                has_deps = True
-                skel = self.data["files"][dep].get("skeleton", "")
-                summary += f"--- {dep} ---\n```python\n{skel}\n```\n"
-        
-        return summary if has_deps else "尚未生成有效的前置契约。"
