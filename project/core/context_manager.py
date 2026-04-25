@@ -1,89 +1,95 @@
 import json
 import ast
 from pathlib import Path
-from typing import Dict, List
+from typing import List, Dict, Any
+from utils.logger import setup_logger
+
+logger = setup_logger(__name__)
 
 class ProjectManifest:
     def __init__(self, project_path: Path):
         self.project_path = project_path
-        self.manifest_file = project_path / ".forge_manifest.json"
+        self.manifest_path = project_path / ".forge_manifest.json"
         self.data = self._load()
 
-    def _load(self) -> Dict:
-        if self.manifest_file.exists():
-            with open(self.manifest_file, 'r', encoding='utf-8') as f:
+    def _load(self) -> Dict[str, Any]:
+        if self.manifest_path.exists():
+            with open(self.manifest_path, 'r', encoding='utf-8') as f:
                 return json.load(f)
         return {"project": str(self.project_path), "files": {}}
 
-    def save(self):
-        with open(self.manifest_file, 'w', encoding='utf-8') as f:
+    def _save(self):
+        with open(self.manifest_path, 'w', encoding='utf-8') as f:
             json.dump(self.data, f, indent=2, ensure_ascii=False)
 
-    def _extract_skeleton(self, content: str) -> str:
-        """
-        AST 语法树提取：终极版 (需 Python 3.9+)
-        完美保留函数参数类型 (Args) 与 返回值类型 (Return Types)
-        """
-        import ast
-        try:
-            tree = ast.parse(content)
-        except Exception:
-            return "语法错误或非 Python 文件"
+    def update_file(self, filename: str, content: str, description: str):
+        """更新文件清单，并精准提取 AST 代码骨架"""
+        skeleton = self._extract_skeleton(content)
+        if "files" not in self.data:
+            self.data["files"] = {}
             
-        lines = []
-        for node in tree.body:
-            # 1. 提取全局常量... (保留你之前的代码)
-            if isinstance(node, ast.Assign):
-                for target in node.targets:
-                    if isinstance(target, ast.Name) and target.id.isupper():
-                        lines.append(f"{target.id} = ...")
-            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id.isupper():
-                lines.append(f"{node.target.id} = ...")
-                    
-            # 2. 提取类
-            elif isinstance(node, ast.ClassDef):
-                lines.append(f"class {node.name}:")
-                has_content = False
-                for sub in node.body:
-                    if isinstance(sub, ast.FunctionDef):
-                        # 【核心强化】：利用 ast.unparse 精确还原带类型的签名
-                        args_str = ast.unparse(sub.args)
-                        ret_str = f" -> {ast.unparse(sub.returns)}" if sub.returns else ""
-                        lines.append(f"    def {sub.name}({args_str}){ret_str}: ...")
-                        has_content = True
-                    # (省略其他的 Assign 提取逻辑...)
-                if not has_content:
-                    lines.append("    pass")
-                    
-            # 3. 提取全局函数
-            elif isinstance(node, ast.FunctionDef):
-                # 【核心强化】：利用 ast.unparse 精确还原带类型的签名
-                args_str = ast.unparse(node.args)
-                ret_str = f" -> {ast.unparse(node.returns)}" if node.returns else ""
-                lines.append(f"def {node.name}({args_str}){ret_str}: ...")
-                
-        return "\n".join(lines) if lines else "无公开接口"
-
-    def update_file(self, filename: str, content: str, description: str = ""):
-        skeleton = self._extract_skeleton(content) if filename.endswith('.py') else ""
         self.data["files"][filename] = {
             "description": description,
             "skeleton": skeleton,
             "size": len(content)
         }
-        self.save()
+        self._save()
+
+    def _extract_skeleton(self, content: str) -> str:
+        """高级 AST 语法树提取：保留函数签名和类结构"""
+        try:
+            tree = ast.parse(content)
+        except Exception:
+            return "语法解析失败，无法提供骨架"
+            
+        lines = []
+        for node in tree.body:
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name) and target.id.isupper():
+                        lines.append(f"{target.id} = ...")
+            elif isinstance(node, ast.ClassDef):
+                lines.append(f"class {node.name}:")
+                has_content = False
+                for sub in node.body:
+                    if isinstance(sub, ast.FunctionDef):
+                        try:
+                            # Python 3.9+ 支持 unparse
+                            args_str = ast.unparse(sub.args)
+                            ret_str = f" -> {ast.unparse(sub.returns)}" if sub.returns else ""
+                            lines.append(f"    def {sub.name}({args_str}){ret_str}: ...")
+                            has_content = True
+                        except AttributeError:
+                            lines.append(f"    def {sub.name}(...): ...")
+                            has_content = True
+                if not has_content:
+                    lines.append("    pass")
+            elif isinstance(node, ast.FunctionDef):
+                try:
+                    args_str = ast.unparse(node.args)
+                    ret_str = f" -> {ast.unparse(node.returns)}" if node.returns else ""
+                    lines.append(f"def {node.name}({args_str}){ret_str}: ...")
+                except AttributeError:
+                    lines.append(f"def {node.name}(...): ...")
+                    
+        return "\n".join(lines) if lines else "该文件暂无暴露的类或函数。"
 
     def get_jit_context(self, depends_on: List[str]) -> str:
-        """【JIT 上下文注入】仅返回当前文件直接依赖的模块 AST 骨架，拒绝污染"""
-        if not self.data["files"] or not depends_on:
-            return "当前模块为底层基石，无前置依赖项。"
-        
-        summary = "### 依赖模块的接口契约 (Interface Contracts)\n请严格对照以下已有接口的参数和返回值进行调用，**绝对禁止自行虚构接口**：\n\n"
-        has_deps = False
+        """核心方法：JIT 精准契约注入"""
+        if not depends_on:
+            return "# 当前模块无本地依赖。"
+
+        context = ["【重要契约：你必须且只能调用以下已存在的接口】"]
         for dep in depends_on:
-            if dep in self.data["files"]:
-                has_deps = True
-                skel = self.data["files"][dep].get("skeleton", "")
-                summary += f"--- {dep} ---\n```python\n{skel}\n```\n"
+            file_info = self.data.get("files", {}).get(dep)
+            if file_info:
+                context.append(f"\n--- 文件: {dep} ---")
+                context.append(file_info['skeleton'])
+            else:
+                context.append(f"\n--- 文件: {dep} (暂无可用接口) ---")
         
-        return summary if has_deps else "尚未生成有效的前置契约。"
+        return "\n".join(context)
+
+    def get_progress_summary(self) -> str:
+        if "files" not in self.data: return "无"
+        return ", ".join(self.data["files"].keys())
