@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
 forge-project - AI 驱动的项目脚手架生成器
-用法: python forge.py "做一个简单的待办事项命令行工具"
+用法: 
+  1. 直接输入需求: python forge.py "做一个简单的待办事项命令行工具"
+  2. 使用文件输入: python forge.py prompt.txt
 """
 import argparse
 import sys
@@ -31,7 +33,7 @@ def main():
     parser.add_argument(
         "requirement",
         type=str,
-        help="项目需求描述，例如 '做一个简单的待办事项命令行工具'"
+        help="项目需求描述（例如 '做一个待办工具'），或者包含详细需求的 .txt 文件路径"
     )
     parser.add_argument(
         "--name",
@@ -62,23 +64,45 @@ def main():
     log_level = "DEBUG" if args.verbose else "INFO"
     logger = setup_logger("forge", level=log_level)
 
+    # ==========================================
+    # [核心修改] 支持文件或直接文本输入
+    # ==========================================
+    req_input = args.requirement
+    req_path = Path(req_input)
+    
+    # 判断输入是否为一个存在的文件
+    if req_path.is_file():
+        logger.info(f"📄 检测到输入为文件: {req_path.resolve()}，正在读取内容...")
+        try:
+            with open(req_path, 'r', encoding='utf-8') as f:
+                actual_requirement = f.read().strip()
+                if not actual_requirement:
+                    logger.error("需求文件为空，请输入有效的需求。")
+                    sys.exit(1)
+                logger.info("✅ 成功加载外部需求文档！")
+        except Exception as e:
+            logger.error(f"❌ 读取需求文件失败: {e}")
+            sys.exit(1)
+    else:
+        # 如果不是文件，则直接作为字符串处理
+        actual_requirement = req_input
+        logger.info("💬 接收到直接文本需求输入。")
+
     try:
         logger.info("Initializing Forge Orchestrator (Bypassing VPN for local & DeepSeek)...")
         orchestrator = Orchestrator(config_path=args.config)
         
-        # 精确调用
+        # 将解析后的实际文本传入
         output_path = orchestrator.run(
-            requirement=args.requirement,
-            project_name=args.name,
-            output_dir=args.output
+            requirement=actual_requirement, 
+            name=args.name
         )
-        
-        logger.info(f"✨ Task Completed! Please check: {output_path}")
+        logger.info(f"🎉 项目已成功生成至: {output_path}")
         
     except Exception as e:
-        logger.error(f"项目生成失败 (Kernel Panic): {e}")
+        logger.error(f"❌ 运行失败: {e}")
         if args.verbose:
-            logger.debug(traceback.format_exc())
+            traceback.print_exc()
         sys.exit(1)
 
 if __name__ == "__main__":
